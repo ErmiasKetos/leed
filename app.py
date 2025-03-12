@@ -258,7 +258,6 @@ if page == "Data Upload & Mapping":
 elif page == "Dashboard":
     st.title("Dashboard")
     if "data" in st.session_state:
-        # Apply industry exclusion from settings
         settings = st.session_state.settings
         df = st.session_state.data.copy()
         if settings.get("excluded_industries"):
@@ -275,14 +274,9 @@ elif page == "Dashboard":
         st.pyplot(fig)
         
         st.subheader("Filter by Industry")
-        # Create a full list of industries from the (possibly pre-filtered) dataframe
         all_industries = sorted(df["Industry"].dropna().unique())
         search_term = st.text_input("Search industries", "")
-        if search_term:
-            options = [ind for ind in all_industries if search_term.lower() in ind.lower()]
-        else:
-            options = all_industries
-        # Use only the filtered options for selection
+        options = [ind for ind in all_industries if search_term.lower() in ind.lower()] if search_term else all_industries
         selected_industries = st.multiselect("Select Industry", options=options, default=options)
         filtered_df = df[df["Industry"].isin(selected_industries)]
         st.write("### Filtered Data Preview")
@@ -398,12 +392,35 @@ elif page == "CRM Integration":
 elif page == "Reporting & Alerts":
     st.title("Reporting & Alerts")
     if "data" in st.session_state:
-        df = st.session_state.data
-        st.write("Download a report of your processed lead data:")
-        csv_data = df.to_csv(index=False).encode("utf-8")
-        st.download_button(label="Download Lead Report as CSV", data=csv_data, file_name="lead_report.csv", mime="text/csv")
-        if (df["Score"] > st.session_state.settings["score_threshold"] * 2).any():
-            st.warning("Some leads have exceptionally high scores! Consider following up immediately.")
+        # Replicate the industry filter here so users can download the filtered dataset
+        settings = st.session_state.settings
+        df = st.session_state.data.copy()
+        if settings.get("excluded_industries"):
+            df = df[~df["Industry"].isin(settings["excluded_industries"])]
+            
+        st.subheader("Filter by Industry for Report")
+        all_industries = sorted(df["Industry"].dropna().unique())
+        report_search = st.text_input("Search industries for report", key="report_search")
+        if report_search:
+            report_options = [ind for ind in all_industries if report_search.lower() in ind.lower()]
+        else:
+            report_options = all_industries
+        selected_report_industries = st.multiselect("Select Industry for report", options=report_options, default=report_options, key="report_multiselect")
+        filtered_report_df = df[df["Industry"].isin(selected_report_industries)]
+        st.write("### Filtered Report Data Preview")
+        st.dataframe(filtered_report_df.head())
+        
+        csv_data = filtered_report_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download Filtered Lead Report as CSV",
+            data=csv_data,
+            file_name="filtered_lead_report.csv",
+            mime="text/csv"
+        )
+        
+        # Example alert for high scoring leads in the filtered dataset
+        if (filtered_report_df["Score"] > settings["score_threshold"] * 2).any():
+            st.warning("Some leads in the filtered report have exceptionally high scores! Consider following up immediately.")
     else:
         st.warning("No data loaded. Please upload your CSV file in the 'Data Upload & Mapping' page.")
 
