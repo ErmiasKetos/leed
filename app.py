@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.express as px
 import hashlib
 import time
+from sklearn.cluster import KMeans
 
 # -------------------------------
 # Custom CSS for Enterprise Look
@@ -185,7 +187,7 @@ if not st.session_state.authenticated:
 
 # Add a Logout button in the sidebar
 if st.sidebar.button("Logout"):
-    for key in ["authenticated", "username", "role", "data", "mapping"]:
+    for key in ["authenticated", "username", "role", "data", "mapping", "notes"]:
         st.session_state.pop(key, None)
     st.experimental_rerun()
 
@@ -197,7 +199,7 @@ initialize_settings()
 # -------------------------------
 st.sidebar.header("Navigation")
 page = st.sidebar.radio("Go to", 
-                        ["Data Upload & Mapping", "Dashboard", "CRM Integration", "Reporting & Alerts", "Settings"])
+    ["Data Upload & Mapping", "Dashboard", "Advanced Analytics", "Collaboration Tools", "CRM Integration", "Reporting & Alerts", "Settings"])
 
 # -------------------------------
 # Page: Data Upload & Mapping
@@ -260,6 +262,80 @@ elif page == "Dashboard":
         st.dataframe(top_leads)
     else:
         st.warning("No data loaded. Please go to 'Data Upload & Mapping' and upload your CSV file.")
+
+# -------------------------------
+# Page: Advanced Analytics
+# -------------------------------
+elif page == "Advanced Analytics":
+    st.title("Advanced Analytics")
+    if "data" in st.session_state:
+        df = st.session_state.data.copy()
+        st.subheader("Predictive Lead Scoring")
+        # Simulate predictive lead scoring using a logistic function on the score.
+        threshold = st.session_state.settings["score_threshold"]
+        df["PredictedConversionProbability"] = 1 / (1 + np.exp(- (df["Score"] - threshold) / 10))
+        st.write("Sample predictions:")
+        st.dataframe(df[["Company", "Score", "PredictedConversionProbability"]].head())
+        st.markdown("---")
+        
+        st.subheader("Segmentation & Clustering")
+        # Perform k-means clustering on the Engagement and Score features.
+        features = df[["Engagement", "Score"]]
+        try:
+            kmeans = KMeans(n_clusters=3, random_state=42).fit(features)
+            df["Cluster"] = kmeans.labels_
+            st.write("Clustering Results:")
+            fig = px.scatter(df, x="Engagement", y="Score", color="Cluster",
+                             hover_data=["Company", "Industry"])
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error("Error performing clustering: " + str(e))
+        st.markdown("---")
+        
+        st.subheader("Trend & Time-Series Analysis")
+        if "Date" in df.columns:
+            try:
+                df["Date"] = pd.to_datetime(df["Date"])
+                trend_df = df.groupby("Date")["Score"].mean().reset_index()
+                fig2 = px.line(trend_df, x="Date", y="Score", title="Average Score Over Time")
+                st.plotly_chart(fig2, use_container_width=True)
+            except Exception as e:
+                st.error("Error in trend analysis: " + str(e))
+        else:
+            st.info("No date information available for trend analysis.")
+    else:
+        st.warning("No data loaded. Please upload your CSV file in 'Data Upload & Mapping'.")
+
+# -------------------------------
+# Page: Collaboration Tools
+# -------------------------------
+elif page == "Collaboration Tools":
+    st.title("Collaboration Tools")
+    if "data" in st.session_state:
+        df = st.session_state.data
+        if "notes" not in st.session_state:
+            st.session_state.notes = {}  # Dictionary mapping lead index to list of notes
+        st.write("Select a lead to add or view notes:")
+        lead_idx = st.selectbox("Select Lead", options=df.index.tolist(), format_func=lambda idx: df.loc[idx, "Company"])
+        note_text = st.text_area("Enter your note for the selected lead:")
+        assigned_to = st.text_input("Assign to (e.g., team member name):")
+        if st.button("Add Note"):
+            note_entry = {"note": note_text, "assigned_to": assigned_to, "timestamp": pd.Timestamp.now()}
+            if lead_idx in st.session_state.notes:
+                st.session_state.notes[lead_idx].append(note_entry)
+            else:
+                st.session_state.notes[lead_idx] = [note_entry]
+            st.success("Note added!")
+        st.markdown("### Existing Notes for Selected Lead")
+        if lead_idx in st.session_state.notes:
+            for note in st.session_state.notes[lead_idx]:
+                st.write(f"**Assigned to:** {note['assigned_to']} | **Time:** {note['timestamp']}")
+                st.write(note["note"])
+                st.markdown("---")
+        else:
+            st.info("No notes for this lead yet.")
+    else:
+        st.warning("No data loaded. Please upload your CSV file in 'Data Upload & Mapping'.")
 
 # -------------------------------
 # Page: CRM Integration
