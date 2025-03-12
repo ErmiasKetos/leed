@@ -11,6 +11,7 @@ import time
 
 def hash_password(password: str) -> str:
     """Simple hashing function for storing passwords."""
+    import hashlib
     return hashlib.sha256(password.encode()).hexdigest()
 
 # Dummy user database with hashed passwords
@@ -34,17 +35,35 @@ def authenticate(username: str, password: str) -> bool:
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Perform basic data cleaning and normalization.
-    Expects at least: 'Company', 'Industry', 'Visits', 'TimeSpent'
+    Expected columns: 'Company', 'Industry', 'Visits', 'TimeSpent'
+    Accepts alternative names if not found in the file.
     """
-    required_cols = ["Company", "Industry", "Visits", "TimeSpent"]
-    for col in required_cols:
-        if col not in df.columns:
-            st.error(f"Missing required column: {col}")
+    # Define acceptable alternatives for required columns
+    column_mapping = {
+        "Company": ["Company", "Company Name"],
+        "Industry": ["Industry"],
+        "Visits": ["Visits"],
+        "TimeSpent": ["TimeSpent", "Time on Site"]
+    }
+    
+    # Check and rename columns based on mapping
+    for req_col, alternatives in column_mapping.items():
+        found = False
+        for alt in alternatives:
+            if alt in df.columns:
+                if alt != req_col:
+                    df = df.rename(columns={alt: req_col})
+                found = True
+                break
+        if not found:
+            st.error(f"Missing required column: {req_col}")
             st.stop()
+    
     # Drop rows with missing key values
-    df = df.dropna(subset=required_cols)
+    df = df.dropna(subset=["Company", "Industry", "Visits", "TimeSpent"])
     df["Company"] = df["Company"].astype(str).str.strip()
     df["Industry"] = df["Industry"].astype(str).str.strip()
+    
     # Ensure numeric columns are numbers
     df["Visits"] = pd.to_numeric(df["Visits"], errors="coerce").fillna(0)
     df["TimeSpent"] = pd.to_numeric(df["TimeSpent"], errors="coerce").fillna(0)
@@ -58,14 +77,14 @@ def enrich_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     with st.spinner("Enriching data with third‑party APIs..."):
         time.sleep(2)  # simulate API call delay
-    # For demo purposes, add a dummy column.
+    # For demo purposes, add a dummy enrichment column.
     df["EnrichedInfo"] = "Sample Info"
     return df
 
 def calculate_score(row: pd.Series, settings: dict) -> float:
     """
     Calculate lead score using a simple weighted sum.
-    Assumes the row has 'Visits' and 'TimeSpent' columns.
+    Uses 'Visits' and 'TimeSpent' columns.
     """
     score = row.get("Visits", 0) * settings["visit_weight"] + row.get("TimeSpent", 0) * settings["time_weight"]
     return score
@@ -120,7 +139,7 @@ page = st.sidebar.radio("Go to",
 # -------------------------------
 if page == "Data Upload & Processing":
     st.title("Data Upload & Processing")
-    st.write("Upload your LeadFeeder CSV file. The data must include at least the following columns: 'Company', 'Industry', 'Visits', and 'TimeSpent'.")
+    st.write("Upload your LeadFeeder CSV file. The data should include columns for company, industry, visits, and time spent.")
     
     uploaded_file = st.file_uploader("Upload CSV", type="csv")
     if uploaded_file is not None:
@@ -179,15 +198,14 @@ elif page == "CRM Integration":
     if "data" in st.session_state:
         df = st.session_state.data
         st.write("Select leads to push to your CRM:")
-        # Let the user select leads by company name.
+        # Let the user select leads by their index.
         lead_options = df.index.tolist()
         selected_leads = st.multiselect("Select lead indices", options=lead_options, 
                                           format_func=lambda idx: df.loc[idx, "Company"])
         if st.button("Push Selected Leads to CRM"):
             if selected_leads:
-                # Here you would implement the API call to your CRM system.
+                # Simulate CRM integration
                 crm_data = df.loc[selected_leads]
-                # Simulate CRM integration delay
                 with st.spinner("Pushing leads to CRM..."):
                     time.sleep(2)
                 st.success(f"Successfully pushed {len(crm_data)} leads to the CRM.")
