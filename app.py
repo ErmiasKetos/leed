@@ -143,19 +143,18 @@ def calculate_score(row: pd.Series, settings: dict) -> float:
     
     Parameters used:
     - Engagement: Firmographic measure (e.g., company size)
-    - Industry Factor: Bonus if the industry is high-priority (if defined in settings)
-    - Behavior: If additional behavior metrics were available, they could be added here.
+    - Industry Bonus: Adds bonus points if the lead belongs to a high-priority industry
     
-    The formula here is a simplified version:
-    Score = (Engagement * engagement_weight) + (Industry_Bonus)
-    
-    For demonstration, we add a bonus of 10 points if the industry is considered high-priority.
+    Formula:
+      Score = (Engagement * engagement_weight) + Industry_Bonus
+      
+    A bonus of 10 points is added if the Industry is in the high-priority list.
     """
     base_score = row.get("Engagement", 0) * settings["engagement_weight"]
     
-    # Example: Add bonus for high-priority industries
-    high_priority_industries = settings.get("high_priority_industries", [])
-    industry_bonus = 10 if row.get("Industry") in high_priority_industries else 0
+    # Bonus is applied only if the industry is high priority
+    high_priority = settings.get("high_priority_industries", [])
+    industry_bonus = 10 if row.get("Industry") in high_priority else 0
     
     total_score = base_score + industry_bonus
     return total_score
@@ -167,16 +166,17 @@ def initialize_settings():
     - engagement_weight: weight for the engagement metric.
     - score_threshold: threshold for high-quality leads.
     - high_priority_industries: list of industries to award bonus points.
+    - excluded_industries: list of industries to screen out before analysis.
     """
     defaults = {
-        "engagement_weight": 0.01,  # weight for engagement metric
-        "score_threshold": 50,       # threshold for high-quality leads
-        "high_priority_industries": ["Software Development", "Financial Services", "Healthcare"]  # example list
+        "engagement_weight": 0.01,
+        "score_threshold": 50,
+        "high_priority_industries": ["Software Development", "Financial Services", "Healthcare"],
+        "excluded_industries": []
     }
     if "settings" not in st.session_state:
         st.session_state.settings = defaults
     else:
-        # Ensure all default keys exist in settings.
         for key, value in defaults.items():
             if key not in st.session_state.settings:
                 st.session_state.settings[key] = value
@@ -201,13 +201,11 @@ if not st.session_state.authenticated:
             st.error("Incorrect username or password. Please try again.")
     st.stop()
 
-# Add a Logout button in the sidebar
 if st.sidebar.button("Logout"):
     for key in ["authenticated", "username", "role", "data", "mapping", "notes"]:
         st.session_state.pop(key, None)
     st.experimental_rerun()
 
-# Initialize settings if needed
 initialize_settings()
 
 # -------------------------------
@@ -241,16 +239,11 @@ if page == "Data Upload & Mapping":
             st.write("### Raw Data Preview")
             st.dataframe(df_raw.head())
             
-            # Column Mapping Form
             mapping = mapping_form(df_raw)
             if st.button("Apply Mapping and Process Data"):
                 df_clean = clean_data_with_mapping(df_raw, mapping)
                 df_enriched = enrich_data(df_clean)
-                # Calculate score for each lead using multiple parameters
-                df_enriched["Score"] = df_enriched.apply(
-                    lambda row: calculate_score(row, st.session_state.settings), 
-                    axis=1
-                )
+                df_enriched["Score"] = df_enriched.apply(lambda row: calculate_score(row, st.session_state.settings), axis=1)
                 st.session_state.data = df_enriched
                 st.session_state.mapping = mapping
                 st.success("Data processed successfully!")
@@ -265,11 +258,15 @@ if page == "Data Upload & Mapping":
 elif page == "Dashboard":
     st.title("Dashboard")
     if "data" in st.session_state:
-        df = st.session_state.data
+        # Apply industry exclusion from settings
+        settings = st.session_state.settings
+        df = st.session_state.data.copy()
+        if settings.get("excluded_industries"):
+            df = df[~df["Industry"].isin(settings["excluded_industries"])]
+            
         st.subheader("Summary Statistics")
         st.dataframe(df.describe())
         
-        # Histogram of Lead Scores
         st.subheader("Lead Score Distribution")
         fig, ax = plt.subplots(figsize=(8,4))
         ax.hist(df["Score"], bins=20, edgecolor="black")
@@ -277,22 +274,21 @@ elif page == "Dashboard":
         ax.set_ylabel("Frequency")
         st.pyplot(fig)
         
-        # Searchable Filter by Industry
         st.subheader("Filter by Industry")
+        # Create a full list of industries from the (possibly pre-filtered) dataframe
         all_industries = sorted(df["Industry"].dropna().unique())
         search_term = st.text_input("Search industries", "")
-        filtered_industries = [ind for ind in all_industries if search_term.lower() in ind.lower()]
-        selected_industries = st.multiselect(
-            "Select Industry", 
-            options=filtered_industries, 
-            default=filtered_industries
-        )
+        if search_term:
+            options = [ind for ind in all_industries if search_term.lower() in ind.lower()]
+        else:
+            options = all_industries
+        # Use only the filtered options for selection
+        selected_industries = st.multiselect("Select Industry", options=options, default=options)
         filtered_df = df[df["Industry"].isin(selected_industries)]
         st.write("### Filtered Data Preview")
         st.dataframe(filtered_df.head())
         
-        # Display Top Leads based on the scientific scoring model
-        threshold = st.session_state.settings["score_threshold"]
+        threshold = settings["score_threshold"]
         st.subheader(f"Top Leads (Score >= {threshold})")
         top_leads = df[df["Score"] >= threshold]
         st.dataframe(top_leads)
@@ -306,28 +302,24 @@ elif page == "Advanced Analytics":
     st.title("Advanced Analytics")
     if "data" in st.session_state:
         df = st.session_state.data.copy()
+        settings = st.session_state.settings
+        if settings.get("excluded_industries"):
+            df = df[~df["Industry"].isin(settings["excluded_industries"])]
+            
         st.subheader("Predictive Lead Scoring")
-        # Simulate predictive lead scoring using a logistic function on the overall score.
-        threshold = st.session_state.settings["score_threshold"]
+        threshold = settings["score_threshold"]
         df["PredictedConversionProbability"] = 1 / (1 + np.exp(- (df["Score"] - threshold) / 10))
         st.write("Sample predictions:")
         st.dataframe(df[["Company", "Score", "PredictedConversionProbability"]].head())
         st.markdown("---")
         
         st.subheader("Segmentation & Clustering")
-        # Perform k-means clustering on the Engagement and Score features.
         features = df[["Engagement", "Score"]]
         try:
             kmeans = KMeans(n_clusters=3, random_state=42).fit(features)
             df["Cluster"] = kmeans.labels_
             st.write("Clustering Results:")
-            fig = px.scatter(
-                df, 
-                x="Engagement", 
-                y="Score", 
-                color="Cluster",
-                hover_data=["Company", "Industry"]
-            )
+            fig = px.scatter(df, x="Engagement", y="Score", color="Cluster", hover_data=["Company", "Industry"])
             st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             st.error("Error performing clustering: " + str(e))
@@ -355,7 +347,7 @@ elif page == "Collaboration Tools":
     if "data" in st.session_state:
         df = st.session_state.data
         if "notes" not in st.session_state:
-            st.session_state.notes = {}  # Dictionary mapping lead index to list of notes
+            st.session_state.notes = {}
         st.write("Select a lead to add or view notes:")
         lead_idx = st.selectbox("Select Lead", options=df.index.tolist(), format_func=lambda idx: df.loc[idx, "Company"])
         note_text = st.text_area("Enter your note for the selected lead:")
@@ -388,11 +380,7 @@ elif page == "CRM Integration":
         df = st.session_state.data
         st.write("Select leads to push to your CRM:")
         lead_options = df.index.tolist()
-        selected_leads = st.multiselect(
-            "Select lead indices", 
-            options=lead_options, 
-            format_func=lambda idx: df.loc[idx, "Company"]
-        )
+        selected_leads = st.multiselect("Select lead indices", options=lead_options, format_func=lambda idx: df.loc[idx, "Company"])
         if st.button("Push Selected Leads to CRM"):
             if selected_leads:
                 crm_data = df.loc[selected_leads]
@@ -413,13 +401,7 @@ elif page == "Reporting & Alerts":
         df = st.session_state.data
         st.write("Download a report of your processed lead data:")
         csv_data = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="Download Lead Report as CSV",
-            data=csv_data,
-            file_name="lead_report.csv",
-            mime="text/csv"
-        )
-        # Example alert for high scoring leads
+        st.download_button(label="Download Lead Report as CSV", data=csv_data, file_name="lead_report.csv", mime="text/csv")
         if (df["Score"] > st.session_state.settings["score_threshold"] * 2).any():
             st.warning("Some leads have exceptionally high scores! Consider following up immediately.")
     else:
@@ -430,47 +412,38 @@ elif page == "Reporting & Alerts":
 # -------------------------------
 elif page == "Settings":
     st.title("Settings")
-    st.write("Adjust the scoring parameters and other configurations. Below are explanations of the scoring model:")
+    st.write("Adjust the scoring parameters and filtering options. You can also screen out industries from the analysis here.")
     st.markdown("""
     **Scoring Model Explanation:**
     
     The lead score is computed based on multiple parameters:
     
     - **Engagement Metric:**  
-      This reflects firmographic data such as company size (e.g., number of employees).  
+      Reflects firmographic data such as company size (e.g., number of employees).  
       *Weight:* `engagement_weight` (default: 0.01)
     
     - **Industry Bonus:**  
-      If a lead belongs to a high-priority industry (e.g., Software Development, Financial Services, Healthcare), an extra bonus (e.g., 10 points) is added.  
-      *High-Priority Industries:* Specified in settings.
+      If a lead belongs to a high-priority industry, an extra bonus (e.g., 10 points) is added.
+    
+    - **Excluded Industries:**  
+      Specify industries to screen out entirely from the analysis.
     
     - **Predictive Lead Scoring:**  
-      A logistic function is applied to generate a predicted conversion probability based on the overall score relative to a threshold.
+      A logistic function simulates the conversion probability based on the overall score.
     
-    These parameters can be fine-tuned based on historical conversion data using statistical methods such as logistic regression.
+    These parameters can be fine-tuned using historical conversion data.
     """)
     
-    engagement_weight = st.number_input(
-        "Engagement Weight", 
-        value=st.session_state.settings["engagement_weight"], 
-        step=0.001, 
-        format="%.3f"
-    )
-    score_threshold = st.number_input(
-        "Lead Score Threshold", 
-        value=st.session_state.settings["score_threshold"], 
-        step=1
-    )
-    
-    high_priority_industries = st.text_input(
-        "High-Priority Industries (comma separated)", 
-        value=", ".join(st.session_state.settings["high_priority_industries"])
-    )
+    engagement_weight = st.number_input("Engagement Weight", value=st.session_state.settings["engagement_weight"], step=0.001, format="%.3f")
+    score_threshold = st.number_input("Lead Score Threshold", value=st.session_state.settings["score_threshold"], step=1)
+    high_priority_industries = st.text_input("High-Priority Industries (comma separated)", value=", ".join(st.session_state.settings["high_priority_industries"]))
+    excluded_industries = st.text_input("Excluded Industries (comma separated)", value=", ".join(st.session_state.settings["excluded_industries"]))
     
     if st.button("Save Settings"):
         st.session_state.settings["engagement_weight"] = engagement_weight
         st.session_state.settings["score_threshold"] = score_threshold
         st.session_state.settings["high_priority_industries"] = [ind.strip() for ind in high_priority_industries.split(",")]
+        st.session_state.settings["excluded_industries"] = [ind.strip() for ind in excluded_industries.split(",") if ind.strip()]
         st.success("Settings updated successfully!")
         
     if st.session_state.role == "admin":
