@@ -32,32 +32,40 @@ def authenticate(username: str, password: str) -> bool:
         return True
     return False
 
+
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Perform basic data cleaning and normalization.
-    Expected columns: 'Company', 'Industry', 'Visits', 'TimeSpent'
-    Accepts alternative names if not found in the file.
-    """
-    # Define acceptable alternatives for required columns
+    # Standardize column names: trim spaces and convert to lower-case
+    df.columns = [col.strip().lower() for col in df.columns]
+    
+    # Define acceptable alternatives in lower-case for each required column
     column_mapping = {
-        "Company": ["Company", "Company Name"],
-        "Industry": ["Industry"],
-        "Visits": ["Visits"],
-        "TimeSpent": ["TimeSpent", "Time on Site"]
+        "company": ["company", "company name"],
+        "industry": ["industry"],
+        "visits": ["visits"],
+        "timetspent": ["timetspent", "time on site", "time spent"]
     }
     
-    # Check and rename columns based on mapping
-    for req_col, alternatives in column_mapping.items():
+    # Map the found column names to canonical names
+    for canonical, alternatives in column_mapping.items():
         found = False
         for alt in alternatives:
             if alt in df.columns:
-                if alt != req_col:
-                    df = df.rename(columns={alt: req_col})
+                # Rename to canonical if not already that
+                if alt != canonical:
+                    df = df.rename(columns={alt: canonical})
                 found = True
                 break
         if not found:
-            st.error(f"Missing required column: {req_col}")
+            st.error(f"Missing required column: {canonical}")
             st.stop()
+    
+    # Optionally, rename canonical names to preferred case for further processing
+    df = df.rename(columns={
+        "company": "Company",
+        "industry": "Industry",
+        "visits": "Visits",
+        "timetspent": "TimeSpent"
+    })
     
     # Drop rows with missing key values
     df = df.dropna(subset=["Company", "Industry", "Visits", "TimeSpent"])
@@ -67,6 +75,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     # Ensure numeric columns are numbers
     df["Visits"] = pd.to_numeric(df["Visits"], errors="coerce").fillna(0)
     df["TimeSpent"] = pd.to_numeric(df["TimeSpent"], errors="coerce").fillna(0)
+    
     return df
 
 @st.cache_data(show_spinner=True)
