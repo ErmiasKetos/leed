@@ -139,18 +139,39 @@ def enrich_data(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_score(row: pd.Series, settings: dict) -> float:
     """
-    Calculate lead score using a weighted sum based on the engagement metric.
+    Calculate lead score using a weighted sum based on multiple parameters.
+    
+    Parameters used:
+    - Engagement: Firmographic measure (e.g., company size)
+    - Industry Factor: Bonus if the industry is high-priority (if defined in settings)
+    - Behavior: If additional behavior metrics were available, they could be added here.
+    
+    The formula here is a simplified version:
+    Score = (Engagement * engagement_weight) + (Industry_Bonus)
+    
+    For demonstration, we add a bonus of 10 points if the industry is considered high-priority.
     """
-    score = row.get("Engagement", 0) * settings["engagement_weight"]
-    return score
+    base_score = row.get("Engagement", 0) * settings["engagement_weight"]
+    
+    # Example: Add bonus for high-priority industries
+    high_priority_industries = settings.get("high_priority_industries", [])
+    industry_bonus = 10 if row.get("Industry") in high_priority_industries else 0
+    
+    total_score = base_score + industry_bonus
+    return total_score
 
 def initialize_settings():
     """
     Initialize default settings in session_state if not present, or update missing keys.
+    Settings include:
+    - engagement_weight: weight for the engagement metric.
+    - score_threshold: threshold for high-quality leads.
+    - high_priority_industries: list of industries to award bonus points.
     """
     defaults = {
-        "engagement_weight": 0.01,  # Weight for the engagement metric (e.g., company size)
-        "score_threshold": 50       # Threshold for high-quality leads
+        "engagement_weight": 0.01,  # weight for engagement metric
+        "score_threshold": 50,       # threshold for high-quality leads
+        "high_priority_industries": ["Software Development", "Financial Services", "Healthcare"]  # example list
     }
     if "settings" not in st.session_state:
         st.session_state.settings = defaults
@@ -225,6 +246,7 @@ if page == "Data Upload & Mapping":
             if st.button("Apply Mapping and Process Data"):
                 df_clean = clean_data_with_mapping(df_raw, mapping)
                 df_enriched = enrich_data(df_clean)
+                # Calculate score for each lead using multiple parameters
                 df_enriched["Score"] = df_enriched.apply(
                     lambda row: calculate_score(row, st.session_state.settings), 
                     axis=1
@@ -258,24 +280,18 @@ elif page == "Dashboard":
         # Searchable Filter by Industry
         st.subheader("Filter by Industry")
         all_industries = sorted(df["Industry"].dropna().unique())
-        
         search_term = st.text_input("Search industries", "")
-        filtered_industries = [
-            ind for ind in all_industries 
-            if search_term.lower() in ind.lower()
-        ]
-        
+        filtered_industries = [ind for ind in all_industries if search_term.lower() in ind.lower()]
         selected_industries = st.multiselect(
             "Select Industry", 
             options=filtered_industries, 
             default=filtered_industries
         )
-        
         filtered_df = df[df["Industry"].isin(selected_industries)]
         st.write("### Filtered Data Preview")
         st.dataframe(filtered_df.head())
         
-        # Display Top Leads
+        # Display Top Leads based on the scientific scoring model
         threshold = st.session_state.settings["score_threshold"]
         st.subheader(f"Top Leads (Score >= {threshold})")
         top_leads = df[df["Score"] >= threshold]
@@ -291,7 +307,7 @@ elif page == "Advanced Analytics":
     if "data" in st.session_state:
         df = st.session_state.data.copy()
         st.subheader("Predictive Lead Scoring")
-        # Simulate predictive lead scoring using a logistic function on the score.
+        # Simulate predictive lead scoring using a logistic function on the overall score.
         threshold = st.session_state.settings["score_threshold"]
         df["PredictedConversionProbability"] = 1 / (1 + np.exp(- (df["Score"] - threshold) / 10))
         st.write("Sample predictions:")
@@ -414,7 +430,25 @@ elif page == "Reporting & Alerts":
 # -------------------------------
 elif page == "Settings":
     st.title("Settings")
-    st.write("Adjust the scoring parameters and other configurations.")
+    st.write("Adjust the scoring parameters and other configurations. Below are explanations of the scoring model:")
+    st.markdown("""
+    **Scoring Model Explanation:**
+    
+    The lead score is computed based on multiple parameters:
+    
+    - **Engagement Metric:**  
+      This reflects firmographic data such as company size (e.g., number of employees).  
+      *Weight:* `engagement_weight` (default: 0.01)
+    
+    - **Industry Bonus:**  
+      If a lead belongs to a high-priority industry (e.g., Software Development, Financial Services, Healthcare), an extra bonus (e.g., 10 points) is added.  
+      *High-Priority Industries:* Specified in settings.
+    
+    - **Predictive Lead Scoring:**  
+      A logistic function is applied to generate a predicted conversion probability based on the overall score relative to a threshold.
+    
+    These parameters can be fine-tuned based on historical conversion data using statistical methods such as logistic regression.
+    """)
     
     engagement_weight = st.number_input(
         "Engagement Weight", 
@@ -428,9 +462,15 @@ elif page == "Settings":
         step=1
     )
     
+    high_priority_industries = st.text_input(
+        "High-Priority Industries (comma separated)", 
+        value=", ".join(st.session_state.settings["high_priority_industries"])
+    )
+    
     if st.button("Save Settings"):
         st.session_state.settings["engagement_weight"] = engagement_weight
         st.session_state.settings["score_threshold"] = score_threshold
+        st.session_state.settings["high_priority_industries"] = [ind.strip() for ind in high_priority_industries.split(",")]
         st.success("Settings updated successfully!")
         
     if st.session_state.role == "admin":
