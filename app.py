@@ -92,7 +92,7 @@ def mapping_form(df: pd.DataFrame):
     columns = list(df.columns)
     st.write("Detected columns:", columns)
     
-    # Attempt to provide intelligent defaults
+    # Provide intelligent defaults if found in the uploaded data.
     default_company = columns.index("Company Name") if "Company Name" in columns else 0
     default_industry = columns.index("Industry") if "Industry" in columns else 0
     default_engagement = columns.index("Approx. Employees") if "Approx. Employees" in columns else 0
@@ -148,12 +148,20 @@ def calculate_score(row: pd.Series, settings: dict) -> float:
     return score
 
 def initialize_settings():
-    """Initialize default settings in session_state if not present."""
+    """
+    Initialize default settings in session_state if not present, or update missing keys.
+    """
+    defaults = {
+        "engagement_weight": 0.01,  # Weight for the engagement metric (e.g., company size)
+        "score_threshold": 50       # Threshold for high-quality leads
+    }
     if "settings" not in st.session_state:
-        st.session_state.settings = {
-            "engagement_weight": 0.01,  # Weight for the engagement metric (e.g., company size)
-            "score_threshold": 50       # Threshold for high-quality leads
-        }
+        st.session_state.settings = defaults
+    else:
+        # Ensure all default keys exist in settings.
+        for key, value in defaults.items():
+            if key not in st.session_state.settings:
+                st.session_state.settings[key] = value
 
 # -------------------------------
 # User Authentication Section
