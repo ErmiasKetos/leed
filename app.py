@@ -42,7 +42,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         "company": ["company", "company name"],
         "industry": ["industry"],
         "visits": ["visits"],
-        "timetspent": ["timetspent", "time on site", "time spent"]
+        "timetspent": ["timetspent", "time on site", "Time on Site", "time spent"]
     }
     
     # Map the found column names to canonical names
