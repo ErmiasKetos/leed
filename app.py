@@ -6,16 +6,63 @@ import hashlib
 import time
 
 # -------------------------------
+# Custom CSS for Enterprise Look
+# -------------------------------
+st.set_page_config(page_title="Enterprise Lead Generation App", layout="wide")
+custom_css = """
+<style>
+/* General Styling */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f5f5f5;
+    color: #333333;
+}
+
+/* Header Styling */
+h1, h2, h3, h4 {
+    color: #333333;
+}
+
+/* Sidebar Styling */
+[data-testid="stSidebar"] {
+    background-color: #ffffff;
+    border-right: 1px solid #e6e6e6;
+}
+
+/* Button Styling */
+.stButton button {
+    background-color: #007acc;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5em 1em;
+}
+.stButton button:hover {
+    background-color: #005f99;
+}
+
+/* DataFrame styling */
+.css-1r6slb0 {
+    font-size: 0.9em;
+}
+
+/* Additional padding for a spacious layout */
+.block-container {
+    padding: 2rem 1rem;
+}
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+
+# -------------------------------
 # Helper Functions and Utilities
 # -------------------------------
 
 def hash_password(password: str) -> str:
     """Simple hashing function for storing passwords."""
-    import hashlib
     return hashlib.sha256(password.encode()).hexdigest()
 
 # Dummy user database with hashed passwords
-# In production, integrate with an enterprise-grade authentication provider.
 users = {
     "admin": hash_password("admin123"),
     "sales": hash_password("sales123")
@@ -32,49 +79,52 @@ def authenticate(username: str, password: str) -> bool:
         return True
     return False
 
+def standardize_column(col: str) -> str:
+    """Removes spaces and converts a column name to lower-case."""
+    return "".join(col.strip().lower().split())
 
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    # Standardize column names: trim spaces and convert to lower-case
-    df.columns = [col.strip().lower() for col in df.columns]
+def mapping_form(df: pd.DataFrame):
+    """
+    Presents a form to map required fields to columns in the uploaded file.
+    Required fields: 'Company', 'Industry', and 'Engagement' (e.g., Company Size).
+    """
+    st.subheader("Column Mapping")
+    columns = list(df.columns)
+    st.write("Detected columns:", columns)
     
-    # Define acceptable alternatives in lower-case for each required column
-    column_mapping = {
-        "company": ["company", "company name"],
-        "industry": ["industry"],
-        "visits": ["visits"],
-        "timetspent": ["timetspent", "time on site", "Time on Site", "time spent"]
+    # Attempt to provide intelligent defaults
+    default_company = columns.index("Company Name") if "Company Name" in columns else 0
+    default_industry = columns.index("Industry") if "Industry" in columns else 0
+    default_engagement = columns.index("Approx. Employees") if "Approx. Employees" in columns else 0
+    
+    mapping = {}
+    mapping['Company'] = st.selectbox("Select the column for Company", options=columns, index=default_company)
+    mapping['Industry'] = st.selectbox("Select the column for Industry", options=columns, index=default_industry)
+    mapping['Engagement'] = st.selectbox("Select the column for Engagement Metric (e.g., Company Size)", options=columns, index=default_engagement)
+    
+    return mapping
+
+def clean_data_with_mapping(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
+    """
+    Cleans and normalizes the CSV data using the user's column mapping.
+    Renames columns to canonical names: "Company", "Industry", and "Engagement".
+    """
+    # Rename columns according to mapping
+    rename_dict = {
+        mapping['Company']: "Company",
+        mapping['Industry']: "Industry",
+        mapping['Engagement']: "Engagement"
     }
+    df = df.rename(columns=rename_dict)
     
-    # Map the found column names to canonical names
-    for canonical, alternatives in column_mapping.items():
-        found = False
-        for alt in alternatives:
-            if alt in df.columns:
-                # Rename to canonical if not already that
-                if alt != canonical:
-                    df = df.rename(columns={alt: canonical})
-                found = True
-                break
-        if not found:
-            st.error(f"Missing required column: {canonical}")
-            st.stop()
-    
-    # Optionally, rename canonical names to preferred case for further processing
-    df = df.rename(columns={
-        "company": "Company",
-        "industry": "Industry",
-        "visits": "Visits",
-        "timetspent": "TimeSpent"
-    })
-    
-    # Drop rows with missing key values
-    df = df.dropna(subset=["Company", "Industry", "Visits", "TimeSpent"])
+    # Drop rows with missing key values.
+    df = df.dropna(subset=["Company", "Industry", "Engagement"])
     df["Company"] = df["Company"].astype(str).str.strip()
     df["Industry"] = df["Industry"].astype(str).str.strip()
     
-    # Ensure numeric columns are numbers
-    df["Visits"] = pd.to_numeric(df["Visits"], errors="coerce").fillna(0)
-    df["TimeSpent"] = pd.to_numeric(df["TimeSpent"], errors="coerce").fillna(0)
+    # Convert Engagement to numeric (remove commas if necessary)
+    df["Engagement"] = df["Engagement"].astype(str).str.replace(",", "")
+    df["Engagement"] = pd.to_numeric(df["Engagement"], errors="coerce").fillna(0)
     
     return df
 
@@ -82,9 +132,9 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 def enrich_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Placeholder for data enrichment.
-    In production, integrate with third‑party APIs (e.g., Clearbit, LinkedIn, ZoomInfo).
+    In production, integrate with third-party APIs (e.g., Clearbit, LinkedIn).
     """
-    with st.spinner("Enriching data with third‑party APIs..."):
+    with st.spinner("Enriching data with third-party APIs..."):
         time.sleep(2)  # simulate API call delay
     # For demo purposes, add a dummy enrichment column.
     df["EnrichedInfo"] = "Sample Info"
@@ -92,19 +142,17 @@ def enrich_data(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_score(row: pd.Series, settings: dict) -> float:
     """
-    Calculate lead score using a simple weighted sum.
-    Uses 'Visits' and 'TimeSpent' columns.
+    Calculate lead score using a weighted sum based on the engagement metric.
     """
-    score = row.get("Visits", 0) * settings["visit_weight"] + row.get("TimeSpent", 0) * settings["time_weight"]
+    score = row.get("Engagement", 0) * settings["engagement_weight"]
     return score
 
 def initialize_settings():
     """Initialize default settings in session_state if not present."""
     if "settings" not in st.session_state:
         st.session_state.settings = {
-            "visit_weight": 1.0,
-            "time_weight": 0.1,
-            "score_threshold": 50
+            "engagement_weight": 0.01,  # Weight for the engagement metric (e.g., company size)
+            "score_threshold": 50       # Threshold for high-quality leads
         }
 
 # -------------------------------
@@ -127,9 +175,9 @@ if not st.session_state.authenticated:
             st.error("Incorrect username or password. Please try again.")
     st.stop()
 
-# Add a logout button in the sidebar
+# Add a Logout button in the sidebar
 if st.sidebar.button("Logout"):
-    for key in ["authenticated", "username", "role", "data"]:
+    for key in ["authenticated", "username", "role", "data", "mapping"]:
         st.session_state.pop(key, None)
     st.experimental_rerun()
 
@@ -141,34 +189,33 @@ initialize_settings()
 # -------------------------------
 st.sidebar.header("Navigation")
 page = st.sidebar.radio("Go to", 
-                        ["Dashboard", "Data Upload & Processing", "CRM Integration", "Reporting & Alerts", "Settings"])
+                        ["Data Upload & Mapping", "Dashboard", "CRM Integration", "Reporting & Alerts", "Settings"])
 
 # -------------------------------
-# Page: Data Upload & Processing
+# Page: Data Upload & Mapping
 # -------------------------------
-if page == "Data Upload & Processing":
-    st.title("Data Upload & Processing")
-    st.write("Upload your LeadFeeder CSV file. The data should include columns for company, industry, visits, and time spent.")
+if page == "Data Upload & Mapping":
+    st.title("Data Upload & Mapping")
+    st.write("Upload your LeadFeeder CSV file and map the columns to the required fields for analysis.")
     
     uploaded_file = st.file_uploader("Upload CSV", type="csv")
     if uploaded_file is not None:
         try:
-            df = pd.read_csv(uploaded_file)
-            st.write("### Raw Data Preview", df.head())
-            df = clean_data(df)
-            df = enrich_data(df)
-            # Calculate score for each lead based on current settings
-            df["Score"] = df.apply(lambda row: calculate_score(row, st.session_state.settings), axis=1)
-            st.session_state.data = df  # Save processed data in session state
-            st.success("Data processed successfully!")
+            df_raw = pd.read_csv(uploaded_file)
+            st.write("### Raw Data Preview")
+            st.dataframe(df_raw.head())
             
-            # Display interactive filtering options
-            st.subheader("Filter Your Data")
-            industries = df["Industry"].unique()
-            selected_industries = st.multiselect("Select Industry", options=list(industries), default=list(industries))
-            filtered_df = df[df["Industry"].isin(selected_industries)]
-            st.write("### Filtered Data Preview", filtered_df.head())
-            
+            # Column Mapping Form
+            mapping = mapping_form(df_raw)
+            if st.button("Apply Mapping and Process Data"):
+                df_clean = clean_data_with_mapping(df_raw, mapping)
+                df_enriched = enrich_data(df_clean)
+                df_enriched["Score"] = df_enriched.apply(lambda row: calculate_score(row, st.session_state.settings), axis=1)
+                st.session_state.data = df_enriched
+                st.session_state.mapping = mapping
+                st.success("Data processed successfully!")
+                st.write("### Processed Data Preview")
+                st.dataframe(df_enriched.head())
         except Exception as e:
             st.error(f"Error processing file: {e}")
 
@@ -180,40 +227,46 @@ elif page == "Dashboard":
     if "data" in st.session_state:
         df = st.session_state.data
         st.subheader("Summary Statistics")
-        st.write(df.describe())
+        st.dataframe(df.describe())
         
         # Histogram of Lead Scores
         st.subheader("Lead Score Distribution")
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(8,4))
         ax.hist(df["Score"], bins=20, edgecolor="black")
         ax.set_xlabel("Score")
         ax.set_ylabel("Frequency")
         st.pyplot(fig)
         
-        # Display top leads based on the score threshold set in settings
+        # Filter by Industry
+        st.subheader("Filter by Industry")
+        industries = df["Industry"].unique()
+        selected_industries = st.multiselect("Select Industry", options=list(industries), default=list(industries))
+        filtered_df = df[df["Industry"].isin(selected_industries)]
+        st.write("### Filtered Data Preview")
+        st.dataframe(filtered_df.head())
+        
+        # Display Top Leads
         threshold = st.session_state.settings["score_threshold"]
         st.subheader(f"Top Leads (Score >= {threshold})")
         top_leads = df[df["Score"] >= threshold]
         st.dataframe(top_leads)
     else:
-        st.warning("No data loaded. Please go to the 'Data Upload & Processing' page and upload your CSV.")
+        st.warning("No data loaded. Please go to 'Data Upload & Mapping' and upload your CSV file.")
 
 # -------------------------------
 # Page: CRM Integration
 # -------------------------------
 elif page == "CRM Integration":
     st.title("CRM Integration")
-    st.write("This section would integrate with your CRM system (e.g., Salesforce, HubSpot).")
+    st.write("This section simulates integration with your CRM system (e.g., Salesforce, HubSpot).")
     if "data" in st.session_state:
         df = st.session_state.data
         st.write("Select leads to push to your CRM:")
-        # Let the user select leads by their index.
         lead_options = df.index.tolist()
         selected_leads = st.multiselect("Select lead indices", options=lead_options, 
                                           format_func=lambda idx: df.loc[idx, "Company"])
         if st.button("Push Selected Leads to CRM"):
             if selected_leads:
-                # Simulate CRM integration
                 crm_data = df.loc[selected_leads]
                 with st.spinner("Pushing leads to CRM..."):
                     time.sleep(2)
@@ -221,7 +274,7 @@ elif page == "CRM Integration":
             else:
                 st.error("No leads selected. Please select at least one lead.")
     else:
-        st.warning("No data loaded. Please upload your CSV first.")
+        st.warning("No data loaded. Please upload your CSV file in the 'Data Upload & Mapping' page.")
 
 # -------------------------------
 # Page: Reporting & Alerts
@@ -230,7 +283,7 @@ elif page == "Reporting & Alerts":
     st.title("Reporting & Alerts")
     if "data" in st.session_state:
         df = st.session_state.data
-        st.write("Generate a downloadable report of your lead data.")
+        st.write("Download a report of your processed lead data:")
         csv_data = df.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="Download Lead Report as CSV",
@@ -238,36 +291,32 @@ elif page == "Reporting & Alerts":
             file_name="lead_report.csv",
             mime="text/csv"
         )
-        # Example: Check for exceptionally high scores and show an alert.
+        # Example alert for high scoring leads
         if (df["Score"] > st.session_state.settings["score_threshold"] * 2).any():
             st.warning("Some leads have exceptionally high scores! Consider following up immediately.")
     else:
-        st.warning("No data loaded. Please upload your CSV first.")
+        st.warning("No data loaded. Please upload your CSV file in the 'Data Upload & Mapping' page.")
 
 # -------------------------------
 # Page: Settings
 # -------------------------------
 elif page == "Settings":
     st.title("Settings")
-    st.write("Adjust the lead scoring parameters and other configurations.")
+    st.write("Adjust the scoring parameters and other configurations.")
     
-    # Display current settings and allow modifications
-    visit_weight = st.number_input("Visit Weight", value=st.session_state.settings["visit_weight"], step=0.1)
-    time_weight = st.number_input("Time Spent Weight", value=st.session_state.settings["time_weight"], step=0.1)
+    engagement_weight = st.number_input("Engagement Weight", value=st.session_state.settings["engagement_weight"], step=0.001, format="%.3f")
     score_threshold = st.number_input("Lead Score Threshold", value=st.session_state.settings["score_threshold"], step=1)
     
     if st.button("Save Settings"):
-        st.session_state.settings["visit_weight"] = visit_weight
-        st.session_state.settings["time_weight"] = time_weight
+        st.session_state.settings["engagement_weight"] = engagement_weight
         st.session_state.settings["score_threshold"] = score_threshold
         st.success("Settings updated successfully!")
         
-    # Optionally, if the user is an admin, allow further configuration
     if st.session_state.role == "admin":
         st.subheader("Admin-Only Settings")
         st.info("Additional administrative settings can be placed here.")
 
 # -------------------------------
-# End of App
+# End of App - Sidebar Footer
 # -------------------------------
 st.sidebar.write(f"Logged in as: **{st.session_state.username}** (Role: {st.session_state.role})")
