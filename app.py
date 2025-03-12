@@ -81,10 +81,6 @@ def authenticate(username: str, password: str) -> bool:
         return True
     return False
 
-def standardize_column(col: str) -> str:
-    """Removes spaces and converts a column name to lower-case."""
-    return "".join(col.strip().lower().split())
-
 def mapping_form(df: pd.DataFrame):
     """
     Presents a form to map required fields to columns in the uploaded file.
@@ -111,7 +107,6 @@ def clean_data_with_mapping(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
     Cleans and normalizes the CSV data using the user's column mapping.
     Renames columns to canonical names: "Company", "Industry", and "Engagement".
     """
-    # Rename columns according to mapping
     rename_dict = {
         mapping['Company']: "Company",
         mapping['Industry']: "Industry",
@@ -198,8 +193,18 @@ initialize_settings()
 # Navigation Sidebar
 # -------------------------------
 st.sidebar.header("Navigation")
-page = st.sidebar.radio("Go to", 
-    ["Data Upload & Mapping", "Dashboard", "Advanced Analytics", "Collaboration Tools", "CRM Integration", "Reporting & Alerts", "Settings"])
+page = st.sidebar.radio(
+    "Go to", 
+    [
+        "Data Upload & Mapping", 
+        "Dashboard", 
+        "Advanced Analytics", 
+        "Collaboration Tools", 
+        "CRM Integration", 
+        "Reporting & Alerts", 
+        "Settings"
+    ]
+)
 
 # -------------------------------
 # Page: Data Upload & Mapping
@@ -220,7 +225,10 @@ if page == "Data Upload & Mapping":
             if st.button("Apply Mapping and Process Data"):
                 df_clean = clean_data_with_mapping(df_raw, mapping)
                 df_enriched = enrich_data(df_clean)
-                df_enriched["Score"] = df_enriched.apply(lambda row: calculate_score(row, st.session_state.settings), axis=1)
+                df_enriched["Score"] = df_enriched.apply(
+                    lambda row: calculate_score(row, st.session_state.settings), 
+                    axis=1
+                )
                 st.session_state.data = df_enriched
                 st.session_state.mapping = mapping
                 st.success("Data processed successfully!")
@@ -247,10 +255,22 @@ elif page == "Dashboard":
         ax.set_ylabel("Frequency")
         st.pyplot(fig)
         
-        # Filter by Industry
+        # Searchable Filter by Industry
         st.subheader("Filter by Industry")
-        industries = df["Industry"].unique()
-        selected_industries = st.multiselect("Select Industry", options=list(industries), default=list(industries))
+        all_industries = sorted(df["Industry"].dropna().unique())
+        
+        search_term = st.text_input("Search industries", "")
+        filtered_industries = [
+            ind for ind in all_industries 
+            if search_term.lower() in ind.lower()
+        ]
+        
+        selected_industries = st.multiselect(
+            "Select Industry", 
+            options=filtered_industries, 
+            default=filtered_industries
+        )
+        
         filtered_df = df[df["Industry"].isin(selected_industries)]
         st.write("### Filtered Data Preview")
         st.dataframe(filtered_df.head())
@@ -285,8 +305,13 @@ elif page == "Advanced Analytics":
             kmeans = KMeans(n_clusters=3, random_state=42).fit(features)
             df["Cluster"] = kmeans.labels_
             st.write("Clustering Results:")
-            fig = px.scatter(df, x="Engagement", y="Score", color="Cluster",
-                             hover_data=["Company", "Industry"])
+            fig = px.scatter(
+                df, 
+                x="Engagement", 
+                y="Score", 
+                color="Cluster",
+                hover_data=["Company", "Industry"]
+            )
             st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             st.error("Error performing clustering: " + str(e))
@@ -347,8 +372,11 @@ elif page == "CRM Integration":
         df = st.session_state.data
         st.write("Select leads to push to your CRM:")
         lead_options = df.index.tolist()
-        selected_leads = st.multiselect("Select lead indices", options=lead_options, 
-                                          format_func=lambda idx: df.loc[idx, "Company"])
+        selected_leads = st.multiselect(
+            "Select lead indices", 
+            options=lead_options, 
+            format_func=lambda idx: df.loc[idx, "Company"]
+        )
         if st.button("Push Selected Leads to CRM"):
             if selected_leads:
                 crm_data = df.loc[selected_leads]
@@ -388,8 +416,17 @@ elif page == "Settings":
     st.title("Settings")
     st.write("Adjust the scoring parameters and other configurations.")
     
-    engagement_weight = st.number_input("Engagement Weight", value=st.session_state.settings["engagement_weight"], step=0.001, format="%.3f")
-    score_threshold = st.number_input("Lead Score Threshold", value=st.session_state.settings["score_threshold"], step=1)
+    engagement_weight = st.number_input(
+        "Engagement Weight", 
+        value=st.session_state.settings["engagement_weight"], 
+        step=0.001, 
+        format="%.3f"
+    )
+    score_threshold = st.number_input(
+        "Lead Score Threshold", 
+        value=st.session_state.settings["score_threshold"], 
+        step=1
+    )
     
     if st.button("Save Settings"):
         st.session_state.settings["engagement_weight"] = engagement_weight
